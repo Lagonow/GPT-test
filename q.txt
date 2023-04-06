@@ -1,0 +1,417 @@
+Quick = class
+init = function()
+  background ="rgb(88,162,198)"
+  objects = []
+  psprites = []
+  sprites = []
+  maps = []
+  gravity = 9.8
+  friction = 1
+  contact_friction = 50
+  ground = -100
+  grid = []
+  fps = 60
+  avg_dt = 16
+  last_draw = 0
+  tick = 0
+  camera = object
+    x = 0
+    y = 0
+    zoom = 1
+    move = function(px,py)
+      target = px or py
+      target_x = px
+      target_y = py
+    end
+  end
+end
+
+update = function()
+  tick += 1
+  //if tick%2 == 0 then return end
+  for s in sprites
+    if s.physics and s.fall and not s.fixed then
+      s.ay -= gravity*10
+    end
+  end
+  
+  for s in sprites
+    if not s.fixed then
+      s.vx += s.ax/60
+      s.vy += s.ay/60
+      
+      s.contactx = 0
+      s.contacty = 0
+      
+      s.ax = 0
+      s.ay = 0
+    end
+  end
+  
+  for s in sprites
+    s.grounded = 0
+    
+    if s.solid then
+      local dy = s.y-s.height/2-ground
+      if dy<0 then
+        s.vy -= dy*30
+        s.vy *= .5
+        s.grounded = 1
+      end
+    end
+  end
+  
+  for i=0 to sprites.length-2 by 1
+    local s1 = sprites[i]
+    local s2 = sprites[i+1]
+    if s1.x+s1.y-s2.x-s2.y<0 then
+      sprites[i] = s2
+      sprites[i+1] = s1
+    end
+  end
+  
+  for s in sprites
+    for m in maps
+      spriteMapCollision(s,m)
+    end
+  end
+  
+  for i=0 to sprites.length-2 by 1
+    local s1 = sprites[i]
+    
+    if not s1.solid then continue end
+    
+    for j=i+1 to min(i+10,sprites.length-1) by 1
+      local s2 = sprites[j]
+      
+      if not s2.solid then continue end
+      
+      local s1x = s1.x+s1.vx/60
+      local s1y = s1.y+s1.vy/60
+      local s2x = s2.x+s2.vx/60
+      local s2y = s2.y+s2.vy/60
+      
+      local dx = abs(s2x-s1x)
+      local dy = abs(s2y-s1y)
+      
+      dx -= (s1.width+s2.width)/2
+      dy -= (s1.height+s2.height)/2
+
+      if dx<0 and dy<0 then
+        if dx>dy then
+          if s2.x>s1.x then
+            s2.vx -= dx*30
+            s1.vx += dx*30
+          else
+            s2.vx += dx*30
+            s1.vx -= dx*30
+          end
+          local dvy = s2.vy-s1.vy
+          s2.vy -= dvy*.1
+          s1.vy += dvy*.1
+          local dvx = s2.vx-s1.vx
+          s2.vx -= dvx*.1
+          s1.vx += dvx*.1
+        else
+          if s2.y>s1.y then
+            s2.vy -= dy*30
+            s1.vy += dy*30
+            s2.grounded = 1
+          else
+            s2.vy += dy*30
+            s1.vy -= dy*30
+            s1.grounded = 1
+          end
+          local dvx = s2.vx-s1.vx
+          s2.vx -= dvx*.1
+          s1.vx += dvx*.1
+          local dvy = s2.vy-s1.vy
+          s2.vy -= dvy*.1
+          s1.vy += dvy*.1
+        end
+      end
+     end
+  end
+  
+  for s in sprites
+    if s.solid then
+    end
+  end
+  
+  positionUpdate()
+  position_updated = 1
+  
+  // friction
+  for s in sprites
+    if not s.fixed then
+      local f = max(0,min(1,1-friction*.01))
+
+      s.vx *= f
+      s.vy *= f
+    end
+  end
+  
+end
+
+Quick.positionUpdate = function()
+  for s in sprites
+    if not s.fixed then
+      s.x += s.vx/fps
+      s.y += s.vy/fps
+    end
+  end
+
+  local r = .05*60/fps
+  
+  if camera.target then
+    camera.x += (camera.target_x-camera.x)*r
+    camera.y += (camera.target_y-camera.y)*r
+  end
+end
+
+Quick.draw = function()
+  local time = system.time()
+  if last_time then
+    local dt = time-last_time
+    if dt<100 and dt>0 then
+      if tick<60 then
+        avg_dt = max(1,avg_dt*.9+dt*.1)
+      else
+        avg_dt = max(1,avg_dt*.999+dt*.001)
+      end
+      fps = max(60,1000/avg_dt)
+    end
+  end
+  
+  last_time = time
+  
+  if not position_updated then
+    positionUpdate()
+  end
+  
+  position_updated = 0
+  
+  if background then
+    screen.fillRect(0,0,screen.width,screen.height,background)
+  end
+  local angle = random.next()*PI*2
+  local cx = camera.x+camera.shake*sin(angle)
+  local cy = camera.y+camera.shake*cos(angle)
+  local zoom = camera.zoom
+  for o in objects
+    if not o.display then continue end
+    if o.object_type == "sprite" then
+      if o.hflip then screen.setDrawScale(-1,1) end
+      if o.vflip then screen.setDrawScale(1,-1) end
+      if o.hflip and o.vflip then screen.setDrawScale(-1,-1) end
+      if o.rotation then
+        screen.setDrawRotation(o.rotation)
+        screen.drawSprite(o.name,(o.x-cx)*zoom,(o.y-cy)*zoom,o.width*zoom,o.height*zoom)
+        screen.setDrawRotation(0)
+      else
+        screen.drawSprite(o.name,(o.x-cx)*zoom,(o.y-cy)*zoom,o.width*zoom,o.height*zoom)
+      end
+      screen.setDrawScale(1,1)
+    elsif o.object_type == "map" then
+      screen.drawMap(o.map,(o.x-cx)*zoom,(o.y-cy)*zoom,o.width*zoom,o.height*zoom)
+    elsif o.object_type == "text" then
+      screen.drawText(o.text,(o.x-cx)*zoom,(o.y-cy)*zoom,o.height*zoom,o.color)
+    end
+  end
+  
+  return
+end
+
+addSprite = function(name,x,y,width,height)
+  width = if width then width else 20 end
+  height = if height then height else width end
+
+  local sprite = object
+    object_type = "sprite"
+    name = name
+    x = x
+    y = y
+    vx = 0
+    vy = 0
+    width = width
+    height = height
+    mass = 1
+    fall = 1
+    friction = -1
+    fixed = 0
+    display = 1
+    physics = 1
+    solid = 1
+    bounciness = 0
+    contact_friction = 1
+  end
+  
+  sprites.push(sprite)
+  objects.push(sprite)
+  
+  return sprite
+end
+
+addMap = function(name,x,y,width,height)
+  width = if width then width else 100 end
+  height = if height then height else width end
+
+  local map = object
+    object_type = "map"
+    name = name
+    x = x
+    y = y
+    map = global.maps[name]
+    
+    width = width
+    height = height
+    display = 1
+    physics = 1
+    solid = 1
+    hollow = object end
+  
+    setHollow = function(name)
+      hollow[name] = 1
+    end
+    
+    setSolid = function(name)
+      hollow[name] = 0
+    end
+    
+    extractSprites = function(name)
+      local list = []
+      local blockw = width/map.width
+      local blockh = height/map.height
+      local ox = x-width/2
+      local oy = y-height/2
+      local m = map.clone()
+      map = m
+      for i=0 to m.width-1
+        for j=0 to m.height-1
+          if m.get(i,j) == name then
+            m.set(i,j,0)
+            local s = Quick.addSprite(name,ox+(i+.5)*blockw,oy+(j+.5)*blockh,blockw,blockh)
+            
+            list.push(s)
+          end
+        end
+      end
+      
+      m.update()
+      
+      list
+    end
+  end
+  
+  maps.push(map)
+  objects.push(map)
+  return map
+end
+
+isMapCellSolid = function(m,x,y)
+  local cell = m.map.get(x,y)
+  cell and not m.hollow[cell.split(":")[0]]
+end
+
+spriteMapCollision = function(s,m)
+
+  if m.solid and s.solid then
+    local x1 = s.x-s.width*.5
+    local x2 = s.x+s.width*.5
+    local y1 = s.y-s.height*.5
+    local y2 = s.y+s.height*.5
+    local cx1 = floor((x1-m.x+m.width/2)/m.width*m.map.width)
+    local cx2 = floor((x2-m.x+m.width/2)/m.width*m.map.width)
+    local cy1 = floor((y1-m.y+m.height/2)/m.height*m.map.height)
+    local cy2 = floor((y2-m.y+m.height/2)/m.height*m.map.height)
+    
+    local scx1 = floor((s.x-s.width*.3-m.x+m.width/2)/m.width*m.map.width)
+    local scx2 = floor((s.x+s.width*.3-m.x+m.width/2)/m.width*m.map.width)
+    local scy1 = floor((s.y-s.height*.3-m.y+m.height/2)/m.height*m.map.height)
+    local scy2 = floor((s.y+s.height*.3-m.y+m.height/2)/m.height*m.map.height)
+
+    for i=scx1 to scx2
+      if s.vy<=0 then
+        if isMapCellSolid(m,i,cy1) and not isMapCellSolid(m,i,cy1+1) then
+          s.vy = 0
+          s.y = m.y-m.height*.5+(cy1+1)*m.height/m.map.height+s.height/2-.01
+          s.grounded = 1
+          break
+        end
+      elsif s.vy>0 then
+        if isMapCellSolid(m,i,cy2) and not isMapCellSolid(m,i,cy2-1) then
+          s.vy = 0
+          s.y = m.y-m.height*.5+cy2*m.height/m.map.height-s.height/2
+          break
+        end
+      end
+    end
+    
+    for i=scy1 to scy2
+      if s.vx<0 then
+        if isMapCellSolid(m,cx1,i) and not isMapCellSolid(m,cx1+1,i) then
+          s.vx = 0
+          s.x = m.x-m.width*.5+(cx1+1)*m.width/m.map.width+s.width/2
+          break
+        end
+      end
+      if s.vx>0 then
+        if isMapCellSolid(m,cx2,i) and not isMapCellSolid(m,cx2-1,i) then
+          s.vx = 0
+          s.x = m.x-m.width*.5+cx2*m.width/m.map.width-s.width/2
+          break
+        end
+      end
+    end
+  end
+end
+
+mapCellAt = function(map,x,y)
+  local blockw = map.width/map.map.width
+  local blockh = map.height/map.map.height
+  local cx = floor((x-(map.x-map.width/2))/blockw)
+  local cy = floor((y-(map.y-map.height/2))/blockh)
+  return map.map.get(cx,cy)
+end
+
+mapCollision = function(sprite,map)
+  local blockw = map.width/map.map.width
+  local blockh = map.height/map.map.height
+  local cx = floor((sprite.x-(map.x-map.width/2))/blockw)
+  local cy = floor((sprite.y-(map.y-map.height/2))/blockh)
+  return map.map.get(cx,cy)
+end
+
+spriteCollision = function(s1,s2)
+  max(0,min((s1.width+s2.width)/2-abs(s1.x-s2.x),(s1.height+s2.height)/2-abs(s1.y-s2.y)))
+end
+
+addText = function(text,x,y,height=10)
+  local t = object
+    object_type = "text"
+    text = text
+    x = x
+    y = y
+    display = 1
+    height = height
+    font = "BitCell"
+    color = "rgb(255,255,255)"
+  end
+  
+  objects.push(t)
+  return t
+end
+
+remove = function(o)
+  if o.object_type == "sprite" then
+    local index = sprites.indexOf(o)
+    if index>=0 then sprites.remove(index) end
+  end
+  local index = objects.indexOf(o)
+  if index>=0 then objects.remove(index) end
+end
+
+createGroup = function()
+  object
+  end
+end
